@@ -3,8 +3,13 @@ package com.mimo.remote.data.remote
 import android.util.Log
 import com.mimo.remote.data.model.*
 import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okhttp3.*
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
@@ -30,6 +35,9 @@ class WebSocketClient {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var reconnectAttempts = 0
     private var shouldReconnect = true
+    private var lastUrl: String = ""
+
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     // ─── State Flows ─────────────────────────────────────────
 
@@ -48,8 +56,8 @@ class WebSocketClient {
     private val _taskUpdates = MutableSharedFlow<TaskUpdate>(extraBufferCapacity = 16)
     val taskUpdates: SharedFlow<TaskUpdate> = _taskUpdates.asSharedFlow()
 
-    private val _mediaMessages = MutableSharedFlow<Any>(extraBufferCapacity = 32)
-    val mediaMessages: SharedFlow<Any> = _mediaMessages.asSharedFlow()
+    private val _mediaMessages = MutableSharedFlow<JSONObject>(extraBufferCapacity = 32)
+    val mediaMessages: SharedFlow<JSONObject> = _mediaMessages.asSharedFlow()
 
     private val _sessionStart = MutableSharedFlow<SessionStart>(extraBufferCapacity = 4)
     val sessionStart: SharedFlow<SessionStart> = _sessionStart.asSharedFlow()
@@ -59,11 +67,10 @@ class WebSocketClient {
     fun connect(url: String) {
         shouldReconnect = true
         reconnectAttempts = 0
+        lastUrl = url
         _connectionState.value = ConnectionState(isConnecting = true)
 
-        val request = Request.Builder()
-            .url(url)
-            .build()
+        val request = Request.Builder().url(url).build()
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(ws: WebSocket, response: Response) {
@@ -76,23 +83,26 @@ class WebSocketClient {
                 )
 
                 // Register as Android device
-                val device = DeviceInfo(
-                    id = getDeviceId(),
-                    name = android.os.Build.MODEL,
-                    type = "android",
-                    platform = "android-${android.os.Build.VERSION.SDK_INT}",
-                    version = "0.1.0"
-                )
-                ws.send("""{"type":"register","deviceId":"${device.id}","role":"android"}""")
+                val registerMsg = buildJsonObject {
+                    put("type", "register")
+                    put("deviceId", getDeviceId())
+                    put("role", "android")
+                }
+                ws.send(registerMsg.toString())
 
                 // Send pair request
-                val pairReq = PairRequest(
-                    device = device,
-                    publicKey = "" // TODO: real key exchange
-                )
-                ws.send(kotlinx.serialization.json.Json.encodeToString(
-                    PairRequest.serializer(), pairReq
-                ))
+                val pairReq = buildJsonObject {
+                    put("type", "pair:request")
+                    put("device", buildJsonObject {
+                        put("id", getDeviceId())
+                        put("name", android.os.Build.MODEL)
+                        put("type", "android")
+                        put("platform", "android-${android.os.Build.VERSION.SDK_INT}")
+                        put("version", "0.1.0")
+                    })
+                    put("publicKey", "")
+                }
+                ws.send(pairReq.toString())
             }
 
             override fun onMessage(ws: WebSocket, text: String) {
@@ -113,7 +123,7 @@ class WebSocketClient {
                     isConnected = false,
                     isConnecting = false
                 )
-                attemptReconnect(url)
+                attemptReconnect()
             }
 
             override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
@@ -123,7 +133,7 @@ class WebSocketClient {
                     isConnecting = false,
                     error = t.message
                 )
-                attemptReconnect(url)
+                attemptReconnect()
             }
         })
     }
@@ -138,80 +148,63 @@ class WebSocketClient {
     // ─── Send Messages ───────────────────────────────────────
 
     fun sendInput(text: String) {
-        val msg = UserInput(data = text, timestamp = System.currentTimeMillis())
-        send(msg)
+        send(buildJsonObject {
+            put("type", "user:input")
+            put("data", text)
+            put("timestamp", System.currentTimeMillis())
+        })
     }
 
     fun sendCommand(command: String, args: String? = null) {
-        val msg = UserCommand(command = command, args = args)
-        send(msg)
+        send(buildJsonObject {
+            put("type", "user:command")
+            put("command", command)
+            if (args != null) put("args", args)
+        })
     }
 
     fun switchAgent(agent: String) {
-        val msg = AgentSwitch(agent = agent)
-        send(msg)
+        send(buildJsonObject {
+            put("type", "user:agent_switch")
+            put("agent", agent)
+        })
     }
 
     fun sendMediaOffer(sdp: String, mediaType: String) {
-        val msg = MediaOffer(sdp = sdp, mediaType = mediaType)
-        send(msg)
+        send(buildJsonObject {
+            put("type", "media:offer")
+            put("sdp", sdp)
+            put("mediaType", mediaType)
+        })
     }
 
     fun sendMediaAnswer(sdp: String) {
-        val msg = MediaAnswer(sdp = sdp)
-        send(msg)
+        send(buildJsonObject {
+            put("type", "media:answer")
+            put("sdp", sdp)
+        })
     }
 
     fun sendMediaCandidate(candidate: String, sdpMid: String, sdpMLineIndex: Int) {
-        val msg = MediaCandidate(
-            candidate = candidate,
-            sdpMid = sdpMid,
-            sdpMLineIndex = sdpMLineIndex
-        )
-        send(msg)
+        send(buildJsonObject {
+            put("type", "media:candidate")
+            put("candidate", candidate)
+            put("sdpMid", sdpMid)
+            put("sdpMLineIndex", sdpMLineIndex)
+        })
     }
 
     fun sendMediaControl(action: String) {
-        val msg = MediaControl(action = action)
-        send(msg)
+        send(buildJsonObject {
+            put("type", "media:control")
+            put("action", action)
+        })
     }
 
     // ─── Internal ────────────────────────────────────────────
 
-    private fun send(msg: Any) {
-        val json = kotlinx.serialization.json.Json.encodeToString(
-            kotlinx.serialization.json.JsonObject.serializer(),
-            kotlinx.serialization.json.Json.parseToJsonElement(
-                kotlinx.serialization.json.Json.encodeToString(
-                    kotlinx.serialization.json.JsonObject.serializer(),
-                    when (msg) {
-                        is UserInput -> kotlinx.serialization.json.Json.encodeToJsonElement(
-                            UserInput.serializer(), msg
-                        ) as kotlinx.serialization.json.JsonObject
-                        is UserCommand -> kotlinx.serialization.json.Json.encodeToJsonElement(
-                            UserCommand.serializer(), msg
-                        ) as kotlinx.serialization.json.JsonObject
-                        is AgentSwitch -> kotlinx.serialization.json.Json.encodeToJsonElement(
-                            AgentSwitch.serializer(), msg
-                        ) as kotlinx.serialization.json.JsonObject
-                        is MediaOffer -> kotlinx.serialization.json.Json.encodeToJsonElement(
-                            MediaOffer.serializer(), msg
-                        ) as kotlinx.serialization.json.JsonObject
-                        is MediaAnswer -> kotlinx.serialization.json.Json.encodeToJsonElement(
-                            MediaAnswer.serializer(), msg
-                        ) as kotlinx.serialization.json.JsonObject
-                        is MediaCandidate -> kotlinx.serialization.json.Json.encodeToJsonElement(
-                            MediaCandidate.serializer(), msg
-                        ) as kotlinx.serialization.json.JsonObject
-                        is MediaControl -> kotlinx.serialization.json.Json.encodeToJsonElement(
-                            MediaControl.serializer(), msg
-                        ) as kotlinx.serialization.json.JsonObject
-                        else -> return
-                    }
-                )
-            )
-        )
-        webSocket?.send(json)
+    private fun send(obj: JsonObject) {
+        webSocket?.send(obj.toString())
     }
 
     private fun handleMessage(raw: String) {
@@ -225,8 +218,7 @@ class WebSocketClient {
                     mimoVersion = json.optString("mimoVersion")
                 )
                 _connectionState.value = _connectionState.value.copy(
-                    sessionId = session.sessionId,
-                    cliDevice = session.cliDevice
+                    sessionId = session.sessionId
                 )
                 scope.launch { _sessionStart.emit(session) }
             }
@@ -268,7 +260,6 @@ class WebSocketClient {
             }
 
             "mimo:task:update" -> {
-                // Parse task tree
                 scope.launch { _taskUpdates.emit(TaskUpdate(tasks = emptyList())) }
             }
 
@@ -280,12 +271,33 @@ class WebSocketClient {
                 val accepted = json.optBoolean("accepted")
                 if (accepted) {
                     Log.i(TAG, "Pairing accepted")
+                    // Extract CLI device info
+                    val deviceJson = json.optJSONObject("device")
+                    if (deviceJson != null) {
+                        val cliDevice = DeviceInfo(
+                            id = deviceJson.optString("id"),
+                            name = deviceJson.optString("name"),
+                            type = deviceJson.optString("type"),
+                            platform = deviceJson.optString("platform"),
+                            version = deviceJson.optString("version")
+                        )
+                        _connectionState.value = _connectionState.value.copy(
+                            cliDevice = cliDevice
+                        )
+                    }
                 }
+            }
+
+            "ping" -> {
+                send(buildJsonObject {
+                    put("type", "pong")
+                    put("timestamp", System.currentTimeMillis())
+                })
             }
         }
     }
 
-    private fun attemptReconnect(url: String) {
+    private fun attemptReconnect() {
         if (!shouldReconnect || reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) return
         reconnectAttempts++
         val delay = RECONNECT_DELAY_MS * reconnectAttempts
@@ -293,8 +305,8 @@ class WebSocketClient {
 
         scope.launch {
             delay(delay)
-            if (shouldReconnect && _connectionState.value.isConnected.not()) {
-                connect(url)
+            if (shouldReconnect && !_connectionState.value.isConnected) {
+                connect(lastUrl)
             }
         }
     }

@@ -2,7 +2,7 @@
 
 import { WebSocketServer, WebSocket } from 'ws';
 import { EventEmitter } from 'events';
-import type { ServerMessage, ClientMessage, DeviceInfo } from '../../shared/src/protocol.js';
+import type { ServerMessage, DeviceInfo } from './protocol.js';
 import { Crypto } from './crypto.js';
 
 export interface SignalingOptions {
@@ -18,7 +18,8 @@ type MessageHandler = (msg: any, deviceId?: string) => void;
 export class SignalingClient extends EventEmitter {
   private wss: WebSocketServer | null = null;
   private remoteWs: WebSocket | null = null;
-  private connectedDevices: Map<string, WebSocket> = new Map();
+  private connectedDevices: Map<string, { ws: WebSocket; device: DeviceInfo }> = new Map();
+  private wsDeviceMap: Map<WebSocket, string> = new Map();
   private handlers: Map<string, MessageHandler[]> = new Map();
   private options: SignalingOptions;
   private currentDeviceId: string | null = null;
@@ -29,35 +30,40 @@ export class SignalingClient extends EventEmitter {
   }
 
   async start(): Promise<void> {
-    // Start local WebSocket server for LAN connections
     this.wss = new WebSocketServer({ port: this.options.localPort });
 
     this.wss.on('connection', (ws, req) => {
-      console.log(`[signaling] New connection from ${req.socket.remoteAddress}`);
+      const ip = req.socket.remoteAddress;
+      console.log(`[signaling] New connection from ${ip}`);
 
       ws.on('message', async (data) => {
         try {
-          const raw = data.toString();
-          const msg = JSON.parse(raw) as ClientMessage;
+          const msg = JSON.parse(data.toString()) as any;
+          const deviceId = this.wsDeviceMap.get(ws);
 
-          // Handle pairing
-          if (msg.type === 'pair:request') {
-            await this.handlePairRequest(ws, msg);
-            return;
+          switch (msg.type) {
+            case 'register':
+              this.handleRegister(ws, msg);
+              break;
+
+            case 'pair:request':
+              this.handlePairRequest(ws, msg);
+              break;
+
+            default:
+              this.dispatchMessage(msg, deviceId);
+              break;
           }
-
-          // Decrypt if encrypted
-          const deviceId = this.getDeviceByWs(ws);
-          this.dispatchMessage(msg, deviceId);
         } catch (err) {
           console.error('[signaling] Failed to parse message:', err);
         }
       });
 
       ws.on('close', () => {
-        const deviceId = this.getDeviceByWs(ws);
+        const deviceId = this.wsDeviceMap.get(ws);
         if (deviceId) {
           this.connectedDevices.delete(deviceId);
+          this.wsDeviceMap.delete(ws);
           console.log(`[signaling] Device disconnected: ${deviceId}`);
         }
       });
@@ -65,7 +71,6 @@ export class SignalingClient extends EventEmitter {
 
     console.log(`[signaling] Listening on ws://0.0.0.0:${this.options.localPort}`);
 
-    // Connect to cloud relay if not LAN-only
     if (!this.options.lanOnly) {
       await this.connectToRelay();
     }
@@ -75,16 +80,16 @@ export class SignalingClient extends EventEmitter {
     this.wss?.close();
     this.remoteWs?.close();
     this.connectedDevices.clear();
+    this.wsDeviceMap.clear();
   }
 
   broadcast(msg: ServerMessage): void {
     const payload = JSON.stringify(msg);
-    for (const [deviceId, ws] of this.connectedDevices) {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(payload);
+    for (const [_, entry] of this.connectedDevices) {
+      if (entry.ws.readyState === WebSocket.OPEN) {
+        entry.ws.send(payload);
       }
     }
-    // Also send to relay
     if (this.remoteWs?.readyState === WebSocket.OPEN) {
       this.remoteWs.send(payload);
     }
@@ -92,14 +97,10 @@ export class SignalingClient extends EventEmitter {
 
   sendToCurrent(msg: ServerMessage): void {
     if (this.currentDeviceId) {
-      const ws = this.connectedDevices.get(this.currentDeviceId);
-      if (ws?.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(msg));
+      const entry = this.connectedDevices.get(this.currentDeviceId);
+      if (entry?.ws.readyState === WebSocket.OPEN) {
+        entry.ws.send(JSON.stringify(msg));
       }
-    }
-    // Also via relay
-    if (this.remoteWs?.readyState === WebSocket.OPEN) {
-      this.remoteWs.send(JSON.stringify(msg));
     }
   }
 
@@ -110,26 +111,29 @@ export class SignalingClient extends EventEmitter {
     this.handlers.get(type)!.push(handler);
   }
 
-  private dispatchMessage(msg: any, deviceId?: string): void {
-    const handlers = this.handlers.get(msg.type);
-    if (handlers) {
-      for (const handler of handlers) {
-        handler(msg, deviceId);
-      }
-    }
-    this.currentDeviceId = deviceId || null;
+  private handleRegister(ws: WebSocket, msg: any): void {
+    const device: DeviceInfo = {
+      id: msg.deviceId,
+      name: msg.deviceId,
+      type: msg.role,
+      platform: 'unknown',
+      version: '0.1.0',
+    };
+    this.connectedDevices.set(msg.deviceId, { ws, device });
+    this.wsDeviceMap.set(ws, msg.deviceId);
+    console.log(`[signaling] Registered device: ${msg.deviceId} (${msg.role})`);
   }
 
-  private async handlePairRequest(ws: WebSocket, msg: any): Promise<void> {
-    // Auto-accept pairing (user confirmed via QR scan)
+  private handlePairRequest(ws: WebSocket, msg: any): void {
     const sessionToken = this.options.crypto.generateToken();
+    const os = require('os');
 
-    const response: ServerMessage = {
-      type: 'pair:response',
+    const response = {
+      type: 'pair:response' as const,
       device: {
         id: this.options.deviceId,
-        name: require('os').hostname(),
-        type: 'cli',
+        name: os.hostname(),
+        type: 'cli' as const,
         platform: `${process.platform} ${process.arch}`,
         version: '0.1.0',
       },
@@ -140,19 +144,44 @@ export class SignalingClient extends EventEmitter {
 
     ws.send(JSON.stringify(response));
 
-    // Register device
-    this.connectedDevices.set(msg.device.id, ws);
-    console.log(`[signaling] Paired with device: ${msg.device.name} (${msg.device.id})`);
+    const mobileDevice: DeviceInfo = msg.device;
+    this.connectedDevices.set(msg.device.id, { ws, device: mobileDevice });
+    this.wsDeviceMap.set(ws, msg.device.id);
+    this.currentDeviceId = msg.device.id;
+    console.log(`[signaling] Paired with: ${mobileDevice.name} (${mobileDevice.id})`);
+
+    const sessionStart = {
+      type: 'session:start' as const,
+      sessionId: `session_${Date.now()}`,
+      cliDevice: response.device,
+      workingDirectory: process.cwd(),
+      mimoVersion: 'demo',
+    };
+    setTimeout(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(sessionStart));
+      }
+    }, 50);
+  }
+
+  private dispatchMessage(msg: any, deviceId?: string): void {
+    const handlers = this.handlers.get(msg.type);
+    if (handlers) {
+      for (const handler of handlers) {
+        handler(msg, deviceId);
+      }
+    }
+    if (deviceId) {
+      this.currentDeviceId = deviceId;
+    }
   }
 
   private async connectToRelay(): Promise<void> {
-    // Cloud relay connection (placeholder)
     try {
       this.remoteWs = new WebSocket(this.options.serverUrl);
 
       this.remoteWs.on('open', () => {
         console.log('[signaling] Connected to cloud relay');
-        // Register this CLI instance
         this.remoteWs!.send(JSON.stringify({
           type: 'register',
           deviceId: this.options.deviceId,
@@ -172,18 +201,7 @@ export class SignalingClient extends EventEmitter {
         setTimeout(() => this.connectToRelay(), 3000);
       });
 
-      this.remoteWs.on('error', () => {
-        // Silently handle; relay is optional
-      });
-    } catch {
-      // Relay unavailable, continue in LAN-only mode
-    }
-  }
-
-  private getDeviceByWs(ws: WebSocket): string | undefined {
-    for (const [id, socket] of this.connectedDevices) {
-      if (socket === ws) return id;
-    }
-    return undefined;
+      this.remoteWs.on('error', () => {});
+    } catch {}
   }
 }

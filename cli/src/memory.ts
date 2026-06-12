@@ -3,7 +3,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { EventEmitter } from 'events';
-import type { MemoryFile } from '../../shared/src/protocol.js';
+import type { MemoryFile } from './protocol.js';
 
 const WATCHED_FILES = [
   'MEMORY.md',
@@ -12,15 +12,9 @@ const WATCHED_FILES = [
   'tasks/progress.md',
 ];
 
-const WATCHED_DIRS = [
-  '.mimocode',
-  'tasks',
-];
-
 export class MemoryWatcher extends EventEmitter {
   private rootDir: string;
   private watchers: fs.FSWatcher[] = [];
-  private lastContents: Map<string, string> = new Map();
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(rootDir: string) {
@@ -63,26 +57,23 @@ export class MemoryWatcher extends EventEmitter {
     this.on('update', callback);
   }
 
-  /**
-   * Get current state of all memory files
-   */
   getAllFiles(): MemoryFile[] {
     const files: MemoryFile[] = [];
 
     for (const file of WATCHED_FILES) {
       const filePath = path.join(this.rootDir, file);
       if (fs.existsSync(filePath)) {
-        files.push(this.readFile(filePath));
+        try {
+          files.push(this.readFile(filePath));
+        } catch {}
       }
     }
 
-    // Also scan .mimocode directory
     const mimocodeDir = path.join(this.rootDir, '.mimocode');
     if (fs.existsSync(mimocodeDir)) {
       this.scanDir(mimocodeDir, files);
     }
 
-    // Scan tasks directory
     const tasksDir = path.join(this.rootDir, 'tasks');
     if (fs.existsSync(tasksDir)) {
       this.scanDir(tasksDir, files);
@@ -91,9 +82,6 @@ export class MemoryWatcher extends EventEmitter {
     return files;
   }
 
-  /**
-   * Read a specific memory file
-   */
   readFile(relPath: string): MemoryFile {
     const filePath = path.isAbsolute(relPath)
       ? relPath
@@ -115,9 +103,7 @@ export class MemoryWatcher extends EventEmitter {
         this.debounceEmit();
       });
       this.watchers.push(watcher);
-    } catch (err) {
-      console.warn(`[memory] Cannot watch ${filePath}:`, err);
-    }
+    } catch {}
   }
 
   private watchDir(dirPath: string): void {
@@ -126,9 +112,7 @@ export class MemoryWatcher extends EventEmitter {
         this.debounceEmit();
       });
       this.watchers.push(watcher);
-    } catch (err) {
-      console.warn(`[memory] Cannot watch ${dirPath}:`, err);
-    }
+    } catch {}
   }
 
   private debounceEmit(): void {
@@ -145,7 +129,9 @@ export class MemoryWatcher extends EventEmitter {
       for (const entry of entries) {
         const fullPath = path.join(dir, entry.name);
         if (entry.isFile() && (entry.name.endsWith('.md') || entry.name.endsWith('.json'))) {
-          files.push(this.readFile(fullPath));
+          try {
+            files.push(this.readFile(fullPath));
+          } catch {}
         } else if (entry.isDirectory()) {
           this.scanDir(fullPath, files);
         }
