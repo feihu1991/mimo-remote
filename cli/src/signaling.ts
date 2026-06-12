@@ -2,7 +2,7 @@
 
 import { WebSocketServer, WebSocket } from 'ws';
 import { EventEmitter } from 'events';
-import type { ServerMessage, ClientMessage, DeviceInfo } from '../shared/src/protocol.js';
+import type { ServerMessage, ClientMessage, DeviceInfo } from '../../shared/src/protocol.js';
 import { Crypto } from './crypto.js';
 
 export interface SignalingOptions {

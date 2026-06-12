@@ -94,7 +94,7 @@ export class MediaBridge extends EventEmitter {
         peerConnection: pc,
       });
 
-      return pc.localDescription.sdp;
+      return pc.localDescription?.sdp ?? '';
     } catch (err) {
       console.error('[media] Failed to handle offer:', err);
       throw err;

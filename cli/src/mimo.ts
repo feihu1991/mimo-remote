@@ -2,7 +2,7 @@
 
 import { EventEmitter } from 'events';
 import * as pty from 'node-pty';
-import type { MimoStatus } from '../shared/src/protocol.js';
+import type { MimoStatus } from '../../shared/src/protocol.js';
 
 export type MimoStatusValue = MimoStatus['status'];
 

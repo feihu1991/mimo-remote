@@ -3,7 +3,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { EventEmitter } from 'events';
-import type { MemoryFile } from '../shared/src/protocol.js';
+import type { MemoryFile } from '../../shared/src/protocol.js';
 
 const WATCHED_FILES = [
   'MEMORY.md',
