@@ -30,6 +30,7 @@
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="MiMo Remote"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
         android:theme="@style/Theme.MiMoRemote"
         tools:targetApi="35">

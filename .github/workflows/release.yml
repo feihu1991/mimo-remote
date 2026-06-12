@@ -1,0 +1,176 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  cli:
+    name: Build CLI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install & build
+        run: npm install && cd shared && npm run build && cd ../cli && npm run build
+
+      - name: Package CLI
+        run: |
+          cd cli
+          npm pack --pack-destination ../dist
+          cd ..
+          mkdir -p release
+          cp dist/mimo-remote-cli-*.tgz release/
+
+      - name: Upload CLI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-package
+          path: release/
+
+  server:
+    name: Build Server
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install & build
+        run: npm install && cd shared && npm run build && cd ../server && npm run build
+
+      - name: Package Server
+        run: |
+          cd server
+          npm pack --pack-destination ../dist
+          cd ..
+          mkdir -p release
+          cp dist/mimo-remote-server-*.tgz release/
+
+      - name: Upload Server artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-package
+          path: release/
+
+  android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Build debug APK
+        run: cd android && ./gradlew assembleDebug
+
+      - name: Build release APK
+        run: cd android && ./gradlew assembleRelease
+
+      - name: Rename APKs
+        run: |
+          mkdir -p release
+          cp android/app/build/outputs/apk/debug/app-debug.apk \
+             release/mimo-remote-${{ steps.version.outputs.VERSION }}-debug.apk
+          cp android/app/build/outputs/apk/release/app-release.apk \
+             release/mimo-remote-${{ steps.version.outputs.VERSION }}-release.apk 2>/dev/null || true
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apks
+          path: release/*.apk
+
+  release:
+    name: Create GitHub Release
+    needs: [cli, server, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          cp artifacts/cli-package/release/* release/ 2>/dev/null || true
+          cp artifacts/server-package/release/* release/ 2>/dev/null || true
+          cp artifacts/android-apks/release/*.apk release/ 2>/dev/null || true
+          ls -la release/
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          # Get commits since last tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -z "$PREV_TAG" ]; then
+            COMMITS=$(git log --oneline --no-decorate)
+          else
+            COMMITS=$(git log --oneline --no-decorate ${PREV_TAG}..HEAD)
+          fi
+          
+          cat > release_notes.md << 'EOF'
+          ## 📦 Downloads
+          
+          | File | Description |
+          |------|-------------|
+          | `mimo-remote-cli-*.tgz` | CLI npm package |
+          | `mimo-remote-server-*.tgz` | Server npm package |
+          | `mimo-remote-*-debug.apk` | Android debug APK (no signing required) |
+          | `mimo-remote-*-release.apk` | Android release APK (unsigned) |
+          
+          ## 🚀 Quick Start
+          
+          **CLI:**
+          ```bash
+          npm install -g mimo-remote-cli-*.tgz
+          mimo-remote start
+          ```
+          
+          **Server:**
+          ```bash
+          npm install mimo-remote-server-*.tgz
+          PORT=9822 node node_modules/mimo-remote-server/dist/index.js
+          ```
+          
+          **Android:**
+          Install the debug APK on your phone, scan the QR code from CLI.
+          
+          ## 📝 Changes
+          
+          EOF
+          
+          echo "$COMMITS" >> release_notes.md
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: release_notes.md
+          files: release/*
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
