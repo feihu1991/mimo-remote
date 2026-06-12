@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MiMo Remote</string>
+    <string name="notification_channel_name">Connection</string>
+    <string name="notification_channel_desc">Persistent connection to MiMo Code</string>
+</resources>
