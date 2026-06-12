@@ -1,6 +1,7 @@
 package com.mimo.remote.data.repository
 
 import com.mimo.remote.data.model.*
+import com.mimo.remote.data.remote.WebRtcManager
 import com.mimo.remote.data.remote.WebSocketClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -12,7 +13,8 @@ import javax.inject.Singleton
 
 @Singleton
 class MimoRepository @Inject constructor(
-    val webSocketClient: WebSocketClient
+    val webSocketClient: WebSocketClient,
+    val webRtcManager: WebRtcManager
 ) {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -22,6 +24,7 @@ class MimoRepository @Inject constructor(
     val memoryUpdates: SharedFlow<MimoMemoryUpdate> = webSocketClient.memoryUpdates
     val taskUpdates: SharedFlow<TaskUpdate> = webSocketClient.taskUpdates
     val sessionStart: SharedFlow<SessionStart> = webSocketClient.sessionStart
+    val callActive: StateFlow<Boolean> = webRtcManager.callActive
 
     private val _terminalLines = MutableStateFlow<List<TerminalLine>>(emptyList())
     val terminalLines: StateFlow<List<TerminalLine>> = _terminalLines.asStateFlow()
@@ -74,6 +77,31 @@ class MimoRepository @Inject constructor(
 
     fun sendMediaControl(action: String) {
         webSocketClient.sendMediaControl(action)
+    }
+
+    // ─── WebRTC ──────────────────────────────────────────────
+
+    fun startAudioCall() {
+        webRtcManager.startAudioCall()
+    }
+
+    fun startVideoCall() {
+        webRtcManager.startVideoCall()
+    }
+
+    fun endCall() {
+        webRtcManager.endCall()
+        webSocketClient.sendMediaControl("end_call")
+    }
+
+    fun toggleMute(muted: Boolean) {
+        webRtcManager.setAudioMuted(muted)
+        webSocketClient.sendMediaControl(if (muted) "mute_audio" else "unmute_audio")
+    }
+
+    fun toggleVideo(muted: Boolean) {
+        webRtcManager.setVideoMuted(muted)
+        webSocketClient.sendMediaControl(if (muted) "mute_video" else "unmute_video")
     }
 
     fun clearTerminal() {

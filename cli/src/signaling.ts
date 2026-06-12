@@ -2,6 +2,7 @@
 
 import { WebSocketServer, WebSocket } from 'ws';
 import { EventEmitter } from 'events';
+import * as os from 'os';
 import type { ServerMessage, DeviceInfo } from './protocol.js';
 import { Crypto } from './crypto.js';
 
@@ -23,6 +24,7 @@ export class SignalingClient extends EventEmitter {
   private handlers: Map<string, MessageHandler[]> = new Map();
   private options: SignalingOptions;
   private currentDeviceId: string | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(options: SignalingOptions) {
     super();
@@ -50,6 +52,14 @@ export class SignalingClient extends EventEmitter {
               this.handlePairRequest(ws, msg);
               break;
 
+            case 'ping':
+              ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
+              break;
+
+            case 'pong':
+              // Heartbeat response, connection alive
+              break;
+
             default:
               this.dispatchMessage(msg, deviceId);
               break;
@@ -71,12 +81,26 @@ export class SignalingClient extends EventEmitter {
 
     console.log(`[signaling] Listening on ws://0.0.0.0:${this.options.localPort}`);
 
+    // Start heartbeat
+    this.heartbeatTimer = setInterval(() => {
+      const ping = JSON.stringify({ type: 'ping', timestamp: Date.now() });
+      for (const [_, entry] of this.connectedDevices) {
+        if (entry.ws.readyState === WebSocket.OPEN) {
+          entry.ws.send(ping);
+        }
+      }
+    }, 15_000);
+
     if (!this.options.lanOnly) {
       await this.connectToRelay();
     }
   }
 
   stop(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
     this.wss?.close();
     this.remoteWs?.close();
     this.connectedDevices.clear();
@@ -126,7 +150,6 @@ export class SignalingClient extends EventEmitter {
 
   private handlePairRequest(ws: WebSocket, msg: any): void {
     const sessionToken = this.options.crypto.generateToken();
-    const os = require('os');
 
     const response = {
       type: 'pair:response' as const,

@@ -24,11 +24,27 @@ MiMo Remote 让你通过 Android 手机远程控制电脑上运行的 [MiMo Code
 
 ```
 mimo-remote/
-├── cli/          # 电脑端 CLI (Node.js + TypeScript)
-├── server/       # 信令中继服务 (可选)
-├── android/      # 原生 Android App (Kotlin + Jetpack Compose)
-└── shared/       # 共享协议定义
+├── cli/          # 电脑端 CLI (Node.js + TypeScript) ✅
+├── server/       # 信令中继服务 (可选) ✅
+├── android/      # 原生 Android App (Kotlin + Jetpack Compose) ✅
+└── shared/       # 共享协议定义 ✅
 ```
+
+## 🏗️ 实现状态
+
+| 模块 | 状态 | 说明 |
+|------|------|------|
+| CLI 主控 | ✅ | PTY 包装、MiMo 进程管理、Demo 模式 |
+| 信令服务 | ✅ | WebSocket 中继、自动配对、心跳 |
+| 加密层 | ✅ | libsodium Curve25519 密钥交换 |
+| QR 码配对 | ✅ | CLI 生成 → Android ML Kit 扫描 |
+| 终端镜像 | ✅ | 实时 ANSI 输出同步 |
+| 远程输入 | ✅ | 文本 + 命令 (/goal, /dream 等) |
+| 记忆浏览器 | ✅ | 文件分类、搜索、内容查看 |
+| 任务树 | ✅ | T1→T1.1 层级可视化 |
+| 语音通话 | ✅ | WebRTC P2P 音频流 |
+| 视频通话 | ✅ | WebRTC P2P 视频流 (框架就绪) |
+| 前台服务 | ✅ | Android 后台保活 |
 
 ## 🚀 快速开始
 

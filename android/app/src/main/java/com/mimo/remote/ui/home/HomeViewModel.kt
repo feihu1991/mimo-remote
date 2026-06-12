@@ -31,9 +31,4 @@ class HomeViewModel @Inject constructor(
         repository.disconnect()
         ConnectionService.stop(application)
     }
-
-    fun startQRScan() {
-        // TODO: Launch camera for QR scanning
-        // For now, use manual input
-    }
 }

@@ -10,6 +10,8 @@ import com.mimo.remote.ui.session.SessionScreen
 import com.mimo.remote.ui.memory.MemoryScreen
 import com.mimo.remote.ui.task.TaskScreen
 import com.mimo.remote.ui.settings.SettingsScreen
+import com.mimo.remote.ui.scanner.QRScannerScreen
+import com.mimo.remote.ui.scanner.parsePairingData
 
 object Routes {
     const val HOME = "home"
@@ -17,6 +19,7 @@ object Routes {
     const val MEMORY = "memory"
     const val TASKS = "tasks"
     const val SETTINGS = "settings"
+    const val QR_SCANNER = "qr_scanner"
 }
 
 @Composable
@@ -30,7 +33,8 @@ fun MainNavigation(
         composable(Routes.HOME) {
             HomeScreen(
                 onNavigateToSession = { navController.navigate(Routes.SESSION) },
-                onNavigateToSettings = { navController.navigate(Routes.SETTINGS) }
+                onNavigateToSettings = { navController.navigate(Routes.SETTINGS) },
+                onNavigateToScanner = { navController.navigate(Routes.QR_SCANNER) }
             )
         }
         composable(Routes.SESSION) {
@@ -52,6 +56,18 @@ fun MainNavigation(
         }
         composable(Routes.SETTINGS) {
             SettingsScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+        composable(Routes.QR_SCANNER) {
+            QRScannerScreen(
+                onScanResult = { pairingData ->
+                    val url = "ws://${pairingData.host}:${pairingData.port}"
+                    navController.previousBackStackEntry
+                        ?.savedStateHandle
+                        ?.set("scanned_url", url)
+                    navController.popBackStack()
+                },
                 onNavigateBack = { navController.popBackStack() }
             )
         }

@@ -4,6 +4,12 @@
   "private": true,
   "main": "dist/protocol.js",
   "types": "dist/protocol.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/protocol.d.ts",
+      "default": "./dist/protocol.js"
+    }
+  },
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit"

@@ -20,6 +20,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.navigation.compose.currentBackStackEntryAsState
 import com.mimo.remote.data.model.ConnectionState
 import com.mimo.remote.ui.theme.MiMoCyan
 import com.mimo.remote.ui.theme.MiMoGreen
@@ -29,11 +30,22 @@ import com.mimo.remote.ui.theme.MiMoPurple
 fun HomeScreen(
     onNavigateToSession: () -> Unit,
     onNavigateToSettings: () -> Unit,
+    onNavigateToScanner: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val connectionState by viewModel.connectionState.collectAsState()
     var serverUrl by remember { mutableStateOf("") }
     var showManualInput by remember { mutableStateOf(false) }
+
+    // Check for scanned URL from QR scanner
+    val navBackStackEntry by currentBackStackEntryAsState()
+    val scannedUrl = navBackStackEntry?.savedStateHandle?.get<String>("scanned_url")
+    LaunchedEffect(scannedUrl) {
+        if (scannedUrl != null) {
+            serverUrl = scannedUrl
+            viewModel.connect(scannedUrl)
+        }
+    }
 
     LaunchedEffect(connectionState.isConnected) {
         if (connectionState.isConnected) {
@@ -108,7 +120,7 @@ fun HomeScreen(
 
                 // Scan QR Button
                 Button(
-                    onClick = { viewModel.startQRScan() },
+                    onClick = { onNavigateToScanner() },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp),

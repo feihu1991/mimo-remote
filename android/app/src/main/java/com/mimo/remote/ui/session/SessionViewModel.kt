@@ -21,6 +21,17 @@ class SessionViewModel @Inject constructor(
     private val _callState = MutableStateFlow(CallState())
     val callState: StateFlow<CallState> = _callState.asStateFlow()
 
+    init {
+        // Sync call state from repository
+        viewModelScope.launch {
+            repository.callActive.collect { active ->
+                if (!active && _callState.value.isInCall) {
+                    _callState.value = CallState()
+                }
+            }
+        }
+    }
+
     fun sendInput(text: String) {
         repository.sendInput(text)
     }
@@ -39,26 +50,29 @@ class SessionViewModel @Inject constructor(
             callType = type,
             isVideoMuted = type == "audio"
         )
-        // TODO: Initiate WebRTC call via repository
+        when (type) {
+            "audio" -> repository.startAudioCall()
+            "video" -> repository.startVideoCall()
+        }
     }
 
     fun endCall() {
         _callState.value = CallState()
-        repository.sendMediaControl("end_call")
+        repository.endCall()
     }
 
     fun toggleMute() {
         val current = _callState.value
         val newMuted = !current.isAudioMuted
         _callState.value = current.copy(isAudioMuted = newMuted)
-        repository.sendMediaControl(if (newMuted) "mute_audio" else "unmute_audio")
+        repository.toggleMute(newMuted)
     }
 
     fun toggleVideo() {
         val current = _callState.value
         val newMuted = !current.isVideoMuted
         _callState.value = current.copy(isVideoMuted = newMuted)
-        repository.sendMediaControl(if (newMuted) "mute_video" else "unmute_video")
+        repository.toggleVideo(newMuted)
     }
 
     fun clearTerminal() {

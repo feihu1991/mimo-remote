@@ -3,6 +3,7 @@
 import express from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer } from 'http';
+import * as os from 'os';
 
 const PORT = parseInt(process.env.PORT || '9822');
 
@@ -156,6 +157,21 @@ function relayMessage(msg: any, fromDeviceId: string | null): void {
     peer.ws.send(JSON.stringify(msg));
   }
 }
+
+// ─── Heartbeat ──────────────────────────────────────────────
+
+const HEARTBEAT_INTERVAL_MS = 30_000;
+
+setInterval(() => {
+  for (const [id, device] of devices) {
+    if (device.ws.readyState === WebSocket.OPEN) {
+      device.ws.send(JSON.stringify({ type: 'ping', timestamp: Date.now() }));
+    } else {
+      // Clean up dead connections
+      devices.delete(id);
+    }
+  }
+}, HEARTBEAT_INTERVAL_MS);
 
 // ─── Start ────────────────────────────────────────────────────
 

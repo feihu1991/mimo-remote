@@ -2,6 +2,7 @@
   "name": "mimo-remote-cli",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "CLI wrapper to connect MiMo Code to Android app",
   "main": "dist/index.js",
   "bin": {
