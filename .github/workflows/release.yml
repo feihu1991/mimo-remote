@@ -25,10 +25,8 @@ jobs:
       - name: Package CLI
         run: |
           cd cli
-          npm pack --pack-destination ../dist
-          cd ..
-          mkdir -p release
-          cp dist/mimo-remote-cli-*.tgz release/
+          mkdir -p ../release
+          npm pack --pack-destination ../release
 
       - name: Upload CLI artifact
         uses: actions/upload-artifact@v4
@@ -52,10 +50,8 @@ jobs:
       - name: Package Server
         run: |
           cd server
-          npm pack --pack-destination ../dist
-          cd ..
-          mkdir -p release
-          cp dist/mimo-remote-server-*.tgz release/
+          mkdir -p ../release
+          npm pack --pack-destination ../release
 
       - name: Upload Server artifact
         uses: actions/upload-artifact@v4
