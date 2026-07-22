@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "MiMoRemote"
-include(":app")
+include(":app", ":inputbridge")
