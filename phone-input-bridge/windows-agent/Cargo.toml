@@ -1,0 +1,12 @@
+[package]
+name = "phone-input-bridge-agent"
+version = "0.1.0"
+edition = "2021"
+description = "Windows input receiver for Phone Input Bridge"
+license = "MIT"
+
+[dependencies]
+rand = "0.8"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+windows-sys = { version = "0.59", features = ["Win32_UI_Input_KeyboardAndMouse"] }
