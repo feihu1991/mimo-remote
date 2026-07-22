@@ -34,17 +34,34 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Build debug APK
+        id: android_build
+        continue-on-error: true
         working-directory: android
+        shell: bash
         run: |
+          set -o pipefail
           chmod +x gradlew
-          ./gradlew :inputbridge:assembleDebug --stacktrace
+          ./gradlew :inputbridge:assembleDebug --stacktrace 2>&1 | tee android-build.log
+
+      - name: Upload Android build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phone-input-bridge-android-build-log
+          path: android/android-build.log
+          if-no-files-found: error
 
       - name: Upload Android APK
+        if: steps.android_build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: phone-input-bridge-android-debug
           path: android/inputbridge/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+      - name: Fail when Android build fails
+        if: steps.android_build.outcome != 'success'
+        run: exit 1
 
   windows:
     name: Build Windows agent
